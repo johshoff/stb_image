@@ -54,6 +54,10 @@ pub fn load_from_memory(buffer: &[u8], components: u32) -> (u64, u64, u64, Vec<u
     let mut y : u64 = 0;
     let mut c : u64 = 0;
 
+    // The C library expects an array of i8, but files in rust are loaded as u8.
+    // It's also the author's opinion that that opaque bytes are better
+    // represented as u8. Therefore, the function takes a u8 argument and converts
+    // it to i8, rather than leaving that to the caller.
     let buffer : &[i8] = unsafe { mem::transmute(buffer) };
     let raw_data = unsafe { stbi_load_from_memory(buffer.as_ptr(), buffer.len() as u64, &mut x, &mut y, &mut c, components as u64) };
 
