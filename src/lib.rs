@@ -1,9 +1,18 @@
 use std::ffi::CString;
 use std::slice;
 use std::mem;
+use std::ptr;
 
 // TODO:
 // - Figure out what happens to pointers from C. Do we need to do a `mem::forget(raw_data);`
+// - Better error situation (see "Errors" below)
+//
+// Errors:
+//   Currently errors from C functions are accessible through stbi_failure_reason. This is
+// implemented in a non-threadsafe way. One solution would be to only access the rust API
+// in one thread, but that seems needlessly limiting. Another would be to rewrite stb_image,
+// but that seems like a bigger project. In the meantime, this is solved by just returning
+// a very simple Err(()) when encountering errors.
 
 #[link(name = "stb_image_impl", kind="static")]
 extern {
@@ -23,7 +32,7 @@ pub fn hdr_to_ldr_gamma(gamma: f32) {
     }
 }
 
-pub fn load(filename: &str, components: u32) -> (u64, u64, u64, Vec<u8>) {
+pub fn load(filename: &str, components: u32) -> Result<(u64, u64, u64, Vec<u8>), ()> {
     let mut x : u64 = 0;
     let mut y : u64 = 0;
     let mut c : u64 = 0;
@@ -32,6 +41,10 @@ pub fn load(filename: &str, components: u32) -> (u64, u64, u64, Vec<u8>) {
     let c_to_print = CString::new(filename).unwrap();
 
     let raw_data = unsafe { stbi_load(c_to_print.as_ptr(), &mut x, &mut y, &mut c, components as u64) };
+
+    if raw_data == ptr::null_mut() {
+        return Err(());
+    }
 
     let num_bytes = (x * y * c) as usize;
 
@@ -46,10 +59,10 @@ pub fn load(filename: &str, components: u32) -> (u64, u64, u64, Vec<u8>) {
 
     unsafe { stbi_image_free(raw_data) };
 
-    (x, y, c, data)
+    Ok((x, y, c, data))
 }
 
-pub fn load_from_memory(buffer: &[u8], components: u32) -> (u64, u64, u64, Vec<u8>) {
+pub fn load_from_memory(buffer: &[u8], components: u32) -> Result<(u64, u64, u64, Vec<u8>), ()> {
     let mut x : u64 = 0;
     let mut y : u64 = 0;
     let mut c : u64 = 0;
@@ -61,6 +74,10 @@ pub fn load_from_memory(buffer: &[u8], components: u32) -> (u64, u64, u64, Vec<u
     let buffer : &[i8] = unsafe { mem::transmute(buffer) };
     let raw_data = unsafe { stbi_load_from_memory(buffer.as_ptr(), buffer.len() as u64, &mut x, &mut y, &mut c, components as u64) };
 
+    if raw_data == ptr::null_mut() {
+        return Err(());
+    }
+
     let num_bytes = (x * y * c) as usize;
 
     let mut data : Vec<u8> = Vec::with_capacity(num_bytes);
@@ -74,7 +91,7 @@ pub fn load_from_memory(buffer: &[u8], components: u32) -> (u64, u64, u64, Vec<u
 
     unsafe { stbi_image_free(raw_data) };
 
-    (x, y, c, data)
+    Ok((x, y, c, data))
 }
 
 
@@ -93,19 +110,37 @@ mod tests {
 
     #[test]
     fn test_load() {
-        let (width, height, channels, data) = load("test.png", 4);
+        let (width, height, channels, data) = load("test.png", 4).unwrap();
 
         check_image(width, height, channels, data);
     }
 
     #[test]
+    fn test_file_not_found() {
+        assert!(load("file_not_found", 4).is_err());
+    }
+
+    #[test]
     fn test_load_from_memory() {
+        let bytes = load_test_png();
+        let (width, height, channels, data) = load_from_memory(&bytes, 4).unwrap();
+
+        check_image(width, height, channels, data);
+    }
+
+    #[test]
+    fn test_req_comp_too_high() {
+        let bytes = load_test_png();
+        assert!(load_from_memory(&bytes, 5).is_err());
+    }
+
+
+    fn load_test_png() -> Vec<u8> {
         let mut file = File::open("test.png").unwrap();
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
-        let (width, height, channels, data) = load_from_memory(&bytes, 4);
 
-        check_image(width, height, channels, data);
+        bytes
     }
 
     // helper function for to check if image 'test.png' is loaded correctly
