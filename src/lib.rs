@@ -4,7 +4,6 @@ use std::mem;
 use std::ptr;
 
 // TODO:
-// - Figure out what happens to pointers from C. Do we need to do a `mem::forget(raw_data);`
 // - Better error situation (see "Errors" below)
 //
 // Errors:
